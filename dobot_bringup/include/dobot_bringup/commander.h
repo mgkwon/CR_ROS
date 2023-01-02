@@ -83,16 +83,22 @@ private:
     RealTimeData real_time_data_;
     std::atomic<bool> is_running_;
     std::unique_ptr<std::thread> thread_;
-    std::shared_ptr<TcpClient> real_time_tcp_;
+    std::shared_ptr<TcpClient> real_time_command_tcp_;
+    std::shared_ptr<TcpClient> real_time_feedback_tcp_;
     std::shared_ptr<TcpClient> dash_board_tcp_;
 
 public:
-    explicit CR5Commander(const std::string& ip)
+    explicit CR5Commander(const std::string& ip, const int real_time_command_port = 30003,
+                          const int real_time_feedback_port = 30003, const int dash_board_port = 29999)
         : current_joint_{}, tool_vector_{}, real_time_data_{}, is_running_(false)
     {
         is_running_ = false;
-        real_time_tcp_ = std::make_shared<TcpClient>(ip, 30003);
-        dash_board_tcp_ = std::make_shared<TcpClient>(ip, 29999);
+        real_time_command_tcp_ = std::make_shared<TcpClient>(ip, real_time_command_port);
+        if (real_time_command_port == real_time_feedback_port)
+            real_time_feedback_tcp_ = real_time_command_tcp_;
+        else
+            real_time_feedback_tcp_ = std::make_shared<TcpClient>(ip, real_time_feedback_port);
+        dash_board_tcp_ = std::make_shared<TcpClient>(ip, dash_board_port);
     }
 
     ~CR5Commander()
@@ -120,11 +126,11 @@ public:
         uint32_t has_read;
         while (is_running_)
         {
-            if (real_time_tcp_->isConnect())
+            if (real_time_feedback_tcp_->isConnect())
             {
                 try
                 {
-                    if (real_time_tcp_->tcpRecv(&real_time_data_, sizeof(real_time_data_), has_read, 5000))
+                    if (real_time_feedback_tcp_->tcpRecv(&real_time_data_, sizeof(real_time_data_), has_read, 5000))
                     {
                         if (real_time_data_.len != 1440)
                             continue;
@@ -143,7 +149,7 @@ public:
                 }
                 catch (const TcpClientException& err)
                 {
-                    real_time_tcp_->disConnect();
+                    real_time_feedback_tcp_->disConnect();
                     ROS_ERROR("tcp recv error : %s", err.what());
                 }
             }
@@ -151,12 +157,28 @@ public:
             {
                 try
                 {
-                    real_time_tcp_->connect();
+                    real_time_feedback_tcp_->connect();
                 }
                 catch (const TcpClientException& err)
                 {
                     ROS_ERROR("tcp recv error : %s", err.what());
                     sleep(3);
+                }
+            }
+
+            if (real_time_command_tcp_ != real_time_feedback_tcp_)
+            {
+                if (!real_time_command_tcp_->isConnect())
+                {
+                    try
+                    {
+                        real_time_command_tcp_->connect();
+                    }
+                    catch (const TcpClientException& err)
+                    {
+                        ROS_ERROR("tcp recv error : %s", err.what());
+                        sleep(3);
+                    }
                 }
             }
 
@@ -195,7 +217,8 @@ public:
 
     bool isConnected() const
     {
-        return dash_board_tcp_->isConnect() && real_time_tcp_->isConnect();
+        return dash_board_tcp_->isConnect() && real_time_command_tcp_->isConnect() &&
+               real_time_feedback_tcp_->isConnect();
     }
 
     void enableRobot()
@@ -239,28 +262,28 @@ public:
     {
         char cmd[100];
         sprintf(cmd, "MovJ(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", x, y, z, a, b, c);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        real_time_command_tcp_->tcpSend(cmd, strlen(cmd));
     }
 
     void movL(double x, double y, double z, double a, double b, double c)
     {
         char cmd[100];
         sprintf(cmd, "MovL(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", x, y, z, a, b, c);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        real_time_command_tcp_->tcpSend(cmd, strlen(cmd));
     }
 
     void jointMovJ(double j1, double j2, double j3, double j4, double j5, double j6)
     {
         char cmd[100];
         sprintf(cmd, "JointMovJ(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", j1, j2, j3, j4, j5, j6);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        real_time_command_tcp_->tcpSend(cmd, strlen(cmd));
     }
 
     void moveJog(const std::string& axis)
     {
         char cmd[100];
         sprintf(cmd, "MoveJog(%s)", axis.c_str());
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        real_time_command_tcp_->tcpSend(cmd, strlen(cmd));
     }
 
     void relMovJ(double offset1, double offset2, double offset3, double offset4, double offset5, double offset6)
@@ -268,28 +291,28 @@ public:
         char cmd[100];
         sprintf(cmd, "RelMovJ(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", offset1, offset2, offset3, offset4, offset5,
                 offset6);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        real_time_command_tcp_->tcpSend(cmd, strlen(cmd));
     }
 
     void relMovL(double x, double y, double z)
     {
         char cmd[100];
         sprintf(cmd, "RelMovL(%0.3f,%0.3f,%0.3f)", x, y, z);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        real_time_command_tcp_->tcpSend(cmd, strlen(cmd));
     }
 
     void servoJ(double j1, double j2, double j3, double j4, double j5, double j6)
     {
         char cmd[100];
         sprintf(cmd, "ServoJ(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", j1, j2, j3, j4, j5, j6);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        real_time_command_tcp_->tcpSend(cmd, strlen(cmd));
     }
 
     void servoP(double x, double y, double z, double a, double b, double c)
     {
         char cmd[100];
         sprintf(cmd, "ServoP(%0.3f,%0.3f,%0.3f,%0.3f,%0.3f,%0.3f)", x, y, z, a, b, c);
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        real_time_command_tcp_->tcpSend(cmd, strlen(cmd));
     }
 
     void dashSendCmd(const char* cmd, uint32_t len)
@@ -306,7 +329,7 @@ public:
 
     void realSendCmd(const char* cmd, uint32_t len)
     {
-        real_time_tcp_->tcpSend(cmd, strlen(cmd));
+        real_time_command_tcp_->tcpSend(cmd, strlen(cmd));
     }
 
 private:

@@ -31,11 +31,14 @@ CR5Robot::~CR5Robot()
 void CR5Robot::init()
 {
     std::string ip = control_nh_.param<std::string>("robot_ip_address", "192.168.5.1");
+    int real_time_command_port = control_nh_.param<int>("real_time_command_port", 30003);
+    int real_time_feedback_port = control_nh_.param<int>("real_time_feedback_port", 30003);
+    int dash_board_port = control_nh_.param<int>("dash_board_port", 29999);
 
     trajectory_duration_ = control_nh_.param("trajectory_duration", 0.3);
     ROS_INFO("trajectory_duration : %0.2f", trajectory_duration_);
 
-    commander_ = std::make_shared<CR5Commander>(ip);
+    commander_ = std::make_shared<CR5Commander>(ip, real_time_command_port, real_time_feedback_port, dash_board_port);
     commander_->init();
 
     server_tbl_.push_back(control_nh_.advertiseService("/dobot_bringup/srv/EnableRobot", &CR5Robot::enableRobot, this));
